@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniView | Pulse Network</title>
+
+<!-- PeerJS -->
+<script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, onSnapshot, query, where, orderBy } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyABMyaf9Y7l6L4Of1Iibc69ZHqDNXmmARs",
+    authDomain: "omniview-ee4a8.firebaseapp.com",
+    projectId: "omniview-ee4a8",
+    storageBucket: "omniview-ee4a8.firebasestorage.app",
+    messagingSenderId: "412398818044",
+    appId: "1:412398818044:web:9fa1cb23c51609a77b3d79"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  window.firebaseDB = db;
+</script>
+
+<style>
+:root { --neon: #00ff41; --bg: #050505; }
+body { font-family: monospace; background: var(--bg); color: var(--neon); padding: 15px; text-transform: uppercase; }
+.hidden { display:none; }
+#chat-box { height:280px; border:1px solid var(--neon); overflow-y:scroll; padding:10px; margin-bottom:10px; }
+input { background:#111; border:1px solid var(--neon); color:var(--neon); padding:10px; width:100%; margin-bottom:10px; }
+button { background:var(--neon); color:#000; border:none; padding:12px; width:100%; font-weight:bold; cursor:pointer; }
+.contact { border:1px solid #333; padding:8px; margin:5px 0; cursor:pointer; }
+.contact:hover { border-color:var(--neon); }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <h2>ENTER USERNAME</h2>
+  <input type="text" id="username" placeholder="USERNAME...">
+  <button onclick="startApp()">BOOT INTERFACE</button>
+</div>
+
+<!-- CHAT -->
+<div id="chat-screen" class="hidden">
+  <h2 id="display-name"></h2>
+
+  <div id="contacts"></div>
+
+  <div id="chat-box">Select or add a contact</div>
+
+  <input type="text" id="target-user" placeholder="ADD USERNAME...">
+  <button onclick="addContact()">ADD CONTACT</button>
+
+  <div id="message-area" class="hidden">
+    <input type="text" id="message-input" placeholder="TYPE MESSAGE...">
+    <button onclick="sendMessage()">SEND</button>
+  </div>
+</div>
+
+<script type="module">
+import { collection, addDoc, onSnapshot, query, where, orderBy } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+let myUsername = "";
+let peer;
+let connections = {};
+let selectedUser = null;
+let chatHistory = [];
+
+const db = window.firebaseDB;
+
+// 🚀 START APP
+window.startApp = function() {
+  const usernameInput = document.getElementById("username").value.trim().toLowerCase();
+  if (!usernameInput) return alert("ENTER USERNAME");
+
+  myUsername = usernameInput;
+  localStorage.setItem("omniUsername", myUsername);
+
+  initPeer();
+};
+
+function initPeer() {
+  peer = new Peer(myUsername);
+
+  peer.on("open", () => {
+    document.getElementById("login-screen").classList.add("hidden");
+    document.getElementById("chat-screen").classList.remove("hidden");
+    document.getElementById("display-name").innerText = "@" + myUsername;
+  });
+
+  peer.on("connection", conn => {
+    setupConnection(conn);
+  });
+
+  peer.on("error", err => {
+    if (err.type === "unavailable-id") {
+      alert("USERNAME ALREADY IN USE");
+    }
+  });
+}
+
+// 🔌 CONNECTION
+function setupConnection(conn) {
+  connections[conn.peer] = conn;
+
+  conn.on("data", data => {
+    receiveMessage(data);
+  });
+}
+
+// ➕ ADD CONTACT
+window.addContact = function() {
+  const target = document.getElementById("target-user").value.trim().toLowerCase();
+  if (!target || target === myUsername) return;
+
+  const conn = peer.connect(target);
+  setupConnection(conn);
+
+  selectedUser = target;
+  document.getElementById("message-area").classList.remove("hidden");
+  loadMessages(target);
+};
+
+// 💬 SEND MESSAGE
+window.sendMessage = async function() {
+  const input = document.getElementById("message-input");
+  if (!input.value.trim()) return;
+
+  const message = {
+    from: myUsername,
+    to: selectedUser,
+    text: input.value,
+    time: Date.now()
+  };
+
+  if (connections[selectedUser]) {
+    connections[selectedUser].send(message);
+  }
+
+  await addDoc(collection(db, "messages"), message);
+  input.value = "";
+};
+
+// 📩 RECEIVE MESSAGE
+function receiveMessage(data) {
+  displayMessage(data);
+}
+
+// 📚 LOAD MESSAGES
+function loadMessages(user) {
+  const q = query(
+    collection(db, "messages"),
+    where("from", "in", [myUsername, user]),
+    orderBy("time")
+  );
+
+  onSnapshot(q, snapshot => {
+    document.getElementById("chat-box").innerHTML = "";
+    snapshot.forEach(doc => {
+      const msg = doc.data();
+      if (
+        (msg.from === myUsername && msg.to === user) ||
+        (msg.from === user && msg.to === myUsername)
+      ) {
+        displayMessage(msg);
+      }
+    });
+  });
+}
+
+// 🖥 DISPLAY MESSAGE
+function displayMessage(msg) {
+  const box = document.getElementById("chat-box");
+  box.innerHTML += `<div>${msg.from}: ${msg.text}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+// 🔄 AUTO LOGIN IF STORED
+const savedUser = localStorage.getItem("omniUsername");
+if (savedUser) {
+  document.getElementById("username").value = savedUser;
+}
+</script>
+
+</body>
+</html>
